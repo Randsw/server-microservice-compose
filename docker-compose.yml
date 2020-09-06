@@ -8,6 +8,7 @@ services:
   dns:
     image: sameersbn/bind:latest
     restart: unless-stopped
+    container_name: bind
     volumes:
      - .:/data
     ports:
@@ -28,6 +29,7 @@ services:
       args:
         ELK_VERSION: $ELK_VERSION
     restart: unless-stopped
+    container_name: elasticsearch
     volumes:
       - type: bind
         source: ./logging/elasticsearch/config/elasticsearch.yml
@@ -55,6 +57,7 @@ services:
       args:
         ELK_VERSION: $ELK_VERSION
     restart: unless-stopped
+    container_name: logstash
     volumes:
       - type: bind
         source: ./logging/logstash/config/logstash.yml
@@ -81,6 +84,7 @@ services:
       args:
         ELK_VERSION: $ELK_VERSION
     restart: unless-stopped
+    container_name: kibana
     volumes:
       - type: bind
         source: ./logging/kibana/config/kibana.yml
@@ -96,6 +100,7 @@ services:
   logspout:
     build:
       context: ./logging/extensions/logspout
+    container_name: logspout
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -120,6 +125,7 @@ services:
           sleep 5;
         done; (exit $$s)"
     restart: unless-stopped
+    container_name: rocketchat
     volumes:
       - ./chat/uploads:/app/uploads
     environment:
@@ -144,6 +150,7 @@ services:
   mongo:
     image: mongo:4.0
     restart: unless-stopped
+    container_name: mongo
     volumes:
      - ./chat/data/db:/data/db
      #- ./data/dump:/dump
@@ -314,6 +321,7 @@ services:
   redis:
     image: redis:alpine
     restart: unless-stopped
+    container_name: mail_redis
     volumes:
       - "./mail/redis:/data"
     networks:
@@ -324,6 +332,7 @@ services:
   front:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}nginx:${MAILU_VERSION:-1.7}
     restart: unless-stopped
+    container_name: front
     env_file: mail/mailu.env
     logging:
       driver: json-file
@@ -356,6 +365,7 @@ services:
   admin:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}admin:${MAILU_VERSION:-1.7}
     restart: unless-stopped
+    container_name: mail_admin
     env_file: mail/mailu.env
     volumes:
       - "./mail/data:/data"
@@ -367,6 +377,7 @@ services:
 
   imap:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}dovecot:${MAILU_VERSION:-1.7}
+    container_name: mail_imap
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -379,6 +390,7 @@ services:
 
   smtp:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}postfix:${MAILU_VERSION:-1.7}
+    container_name: mail_smtp
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -390,6 +402,7 @@ services:
 
   antispam:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}rspamd:${MAILU_VERSION:-1.7}
+    container_name: mail_antispam
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -404,6 +417,7 @@ services:
   # Optional services
   antivirus:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}clamav:${MAILU_VERSION:-1.7}
+    container_name: mail_antivirus
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -413,6 +427,7 @@ services:
 
   webdav:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}radicale:${MAILU_VERSION:-1.7}
+    container_name: mail_webdav
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -422,6 +437,7 @@ services:
 
   fetchmail:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}fetchmail:${MAILU_VERSION:-1.7}
+    container_name: fetchmail
     restart: unless-stopped
     env_file: mail/mailu.env
     networks:
@@ -430,6 +446,7 @@ services:
   # Webmail
   webmail:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}roundcube:${MAILU_VERSION:-1.7}
+    container_name: roundcube
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -441,6 +458,7 @@ services:
 
   database:
     image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}postgresql:${MAILU_VERSION:-1.7}
+    container_name: mail_postgresql
     restart: unless-stopped
     env_file: mail/mailu.env
     volumes:
@@ -456,6 +474,7 @@ services:
     image: 'gitlab/gitlab-ce:latest'
     restart: unless-stopped
     hostname: 'gitlab.dep7serverm.com'
+    container_name: gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'https://gitlab.dep7serverm.com:2443'
@@ -477,9 +496,3 @@ networks:
       driver: default
       config:
         - subnet: 172.19.0.0/16
-
-
-#volumes:
-#  elasticsearch:
-#    prometheus_data: {}
-#    grafana_data: {}
