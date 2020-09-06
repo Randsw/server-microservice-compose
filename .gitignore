@@ -1,0 +1,8 @@
+/bind/
+/chat/
+/gitlab/
+/mail/*
+!/mail/mailu.env
+/logging/elasticsearch/data/
+/monitoring/grafana/grafana_data/
+/monitoring/prometheus/prometheus_data/

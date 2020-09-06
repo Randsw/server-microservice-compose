@@ -1,0 +1,482 @@
+version: '3.3'
+
+services:
+#******************************************************************************
+#***************************BIND9 DNS SERVER***********************************
+#******************************************************************************
+# Config data provide by ansible role 
+  dns:
+    image: sameersbn/bind:latest
+    restart: unless-stopped
+    volumes:
+     - .:/data
+    ports:
+      - "192.168.1.20:53:53/udp"
+      - "192.168.1.20:53:53/tcp"
+    environment:
+      WEBMIN_ENABLED: "false"
+    networks:
+      - server-net
+
+
+#******************************************************************************
+#***********ELK Stack part fith filebeat for Docker logs monitoring************
+#******************************************************************************
+  elasticsearch:
+    build:
+      context: ./logging/elasticsearch/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./logging/elasticsearch/config/elasticsearch.yml
+        target: /usr/share/elasticsearch/config/elasticsearch.yml
+        read_only: true
+      # - type: volume
+      #   source: ./logging/elasticsearch/data
+      #   target: /usr/share/elasticsearch/data
+      - ./logging/elasticsearch/data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+      ELASTIC_PASSWORD: changeme
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks
+      # see https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+      discovery.type: single-node
+    networks:
+      - server-net
+
+  logstash:
+    build:
+      context: ./logging/logstash/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./logging/logstash/config/logstash.yml
+        target: /usr/share/logstash/config/logstash.yml
+        read_only: true
+      - type: bind
+        source: ./logging/logstash/pipeline
+        target: /usr/share/logstash/pipeline
+        read_only: true
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - server-net
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    build:
+      context: ./logging/kibana/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./logging/kibana/config/kibana.yml
+        target: /usr/share/kibana/config/kibana.yml
+        read_only: true
+    ports:
+      - "5601:5601"
+    networks:
+      - server-net
+    depends_on:
+      - elasticsearch
+
+  logspout:
+    build:
+      context: ./logging/extensions/logspout
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      ROUTE_URIS: logstash://logstash:5000
+      LOGSTASH_TAGS: docker-elk
+    networks:
+      - server-net
+    depends_on:
+      - logstash
+    restart: on-failure
+#******************************************************************************
+#************************Rocketchat part - Chat********************************
+#******************************************************************************
+  rocketchat:
+    image: rocketchat/rocket.chat:latest
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          node main.js &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    restart: unless-stopped
+    volumes:
+      - ./chat/uploads:/app/uploads
+    environment:
+      - PORT=3333
+      - ROOT_URL=http://localhost:3333
+      - MONGO_URL=mongodb://mongo:27017/rocketchat
+      - MONGO_OPLOG_URL=mongodb://mongo:27017/local
+      - MAIL_URL=smtp://smtp.email
+#       - HTTP_PROXY=http://proxy.domain.com
+#       - HTTPS_PROXY=http://proxy.domain.com
+    depends_on:
+      - mongo
+    ports:
+      - 3333:3333 # Intersect with grafana port -> switch to 3333
+    labels:
+      - "traefik.backend=rocketchat"
+      - "traefik.frontend.rule=Host: your.domain.tld"
+    networks:
+      - server-net
+
+
+  mongo:
+    image: mongo:4.0
+    restart: unless-stopped
+    volumes:
+     - ./chat/data/db:/data/db
+     #- ./data/dump:/dump
+    command: mongod --smallfiles --oplogSize 128 --replSet rs0 --storageEngine=mmapv1
+    labels:
+      - "traefik.enable=false"
+    networks:
+      - server-net
+
+
+  # this container's job is just run the command to initialize the replica set.
+  # it will run the command and remove himself (it will not stay running)
+  mongo-init-replica:
+    image: mongo:4.0
+    command: >
+      bash -c
+        "for i in `seq 1 30`; do
+          mongo mongo/rocketchat --eval \"
+            rs.initiate({
+              _id: 'rs0',
+              members: [ { _id: 0, host: 'localhost:27017' } ]})\" &&
+          s=$$? && break || s=$$?;
+          echo \"Tried $$i times. Waiting 5 secs...\";
+          sleep 5;
+        done; (exit $$s)"
+    depends_on:
+      - mongo
+    networks:
+      - server-net
+#******************************************************************************
+#*******Monitoring part including prometheus, grafana, alertmanager,***********
+#*******nodeexporter(host monitoring), cadvisor(docker monitoring)*************
+#**************pushgetaway(exporting batch and service metrics)****************
+#******************************************************************************
+
+  prometheus:
+    image: prom/prometheus:v2.20.0
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+      - ./monitoring/prometheus/prometheus_data:/prometheus
+    user: "65534:65534"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    expose:
+      - 9090
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  alertmanager:
+    image: prom/alertmanager:v0.21.0
+    container_name: alertmanager
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    expose:
+      - 9093
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  nodeexporter:
+    image: prom/node-exporter:v1.0.1
+    container_name: nodeexporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    expose:
+      - 9100
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.37.0
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      #- /cgroup:/cgroup:ro #doesn't work on MacOS only for Linux
+    restart: unless-stopped
+    expose:
+      - 8080
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  grafana:
+    image: grafana/grafana:7.1.1
+    container_name: grafana
+    env_file: monitoring/config
+    #user: "472:472"
+    volumes:
+      - ./monitoring/grafana/grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    expose:
+      - 3000
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  pushgateway:
+    image: prom/pushgateway:v1.2.0
+    container_name: pushgateway
+    restart: unless-stopped
+    expose:
+      - 9091
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+  caddy:
+    image: stefanprodan/caddy
+    container_name: caddy
+    env_file: monitoring/config
+    ports:
+      - "3000:3000"
+      - "9090:9090"
+      - "9093:9093"
+      - "9091:9091"
+    volumes:
+      - ./monitoring/caddy:/etc/caddy
+    environment:
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+    restart: unless-stopped
+    networks:
+      - server-net
+    labels:
+      org.label-schema.group: "monitoring"
+
+#******************************************************************************
+#*******Mail server part - postfix, dovecot, clavam(antivirus), webdav*********
+#*******roundecube(web service interface), admin web interface ****************
+#*******************NGINX for reverse proxy(front)*****************************
+#******************************************************************************
+  # External dependencies
+  redis:
+    image: redis:alpine
+    restart: always
+    volumes:
+      - "./mail/redis:/data"
+    networks:
+      - server-net
+
+    
+  # Core services
+  front:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}nginx:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    logging:
+      driver: json-file
+    ports:
+      - "192.168.1.20:80:80"
+#      - "::1:80:80"
+      - "192.168.1.20:443:443"
+#      - "::1:443:443"
+      - "25:25"
+#      - "::1:25:25"
+      - "465:465"
+#      - "::1:465:465"
+      - "587:587"
+#      - "::1:587:587"
+      - "110:110"
+#      - "::1:110:110"
+      - "995:995"
+#      - "::1:995:995"
+      - "143:143"
+#      - "::1:143:143"
+      - "993:993"
+#      - "::1:993:993"
+    volumes:
+      - "./mail/certs:/certs"
+      - "./mail/overrides/nginx:/overrides"
+    networks:
+      - server-net
+
+
+  admin:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}admin:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/data:/data"
+      - "./mail/dkim:/dkim"
+    depends_on:
+      - redis
+    networks:
+      - server-net
+
+  imap:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}dovecot:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/mail:/mail"
+      - "./mail/overrides:/overrides"
+    depends_on:
+      - front
+    networks:
+      - server-net
+
+  smtp:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}postfix:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/overrides:/overrides"
+    depends_on:
+      - front
+    networks:
+      - server-net
+
+  antispam:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}rspamd:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/filter:/var/lib/rspamd"
+      - "./mail/dkim:/dkim"
+      - "./mail/overrides/rspamd:/etc/rspamd/override.d"
+    depends_on:
+      - front
+    networks:
+      - server-net
+
+  # Optional services
+  antivirus:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}clamav:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/filter:/data"
+    networks:
+      - server-net
+
+  webdav:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}radicale:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/dav:/data"
+    networks:
+      - server-net
+
+  fetchmail:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}fetchmail:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    networks:
+      - server-net
+
+  # Webmail
+  webmail:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}roundcube:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/webmail:/data"
+    depends_on:
+      - imap
+    networks:
+      - server-net
+
+  database:
+    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}postgresql:${MAILU_VERSION:-1.7}
+    restart: always
+    env_file: mail/mailu.env
+    volumes:
+      - "./mail/data/psql_db:/data"
+      - "./mail/data/psql_backup:/backup"
+    networks:
+      - server-net
+
+#******************************************************************************
+#*************************Gitlab-CE VSC Server*********************************
+#******************************************************************************
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    restart: always
+    hostname: 'gitlab.dep7serverm.com'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://gitlab.dep7serverm.com:2443'
+    ports:
+#      - '80:80'
+      - '2443:2443' #Intersect with mailu web -> switch to 2443
+      - '22:22'
+    volumes:
+      - './gitlab/config:/etc/gitlab'
+      - './gitlab/logs:/var/log/gitlab'
+      - './gitlab/data:/var/opt/gitlab'
+    networks:
+      - server-net
+
+networks:
+  server-net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.0.0/16
+
+
+volumes:
+  elasticsearch:
+#    prometheus_data: {}
+#    grafana_data: {}
