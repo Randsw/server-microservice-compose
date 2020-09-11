@@ -129,17 +129,20 @@ services:
     volumes:
       - ./chat/uploads:/app/uploads
     environment:
-      - PORT=3333
-      - ROOT_URL=http://localhost:3333
+      - PORT=3000
+      - ROOT_URL=http://localhost:3000
       - MONGO_URL=mongodb://mongo:27017/rocketchat
       - MONGO_OPLOG_URL=mongodb://mongo:27017/local
-      - MAIL_URL=smtp://smtp.email
+      - MAIL_URL=smtp://front:25
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASS=changeme
+      - ADMIN_EMAIL=admin@dep7serverm.com
 #       - HTTP_PROXY=http://proxy.domain.com
 #       - HTTPS_PROXY=http://proxy.domain.com
     depends_on:
       - mongo
     ports:
-      - 3333:3333 # Intersect with grafana port -> switch to 3333
+      - 3333:3000 # Intersect with grafana port -> switch to 3333
     labels:
       - "traefik.backend=rocketchat"
       - "traefik.frontend.rule=Host: your.domain.tld"
@@ -473,11 +476,11 @@ services:
   gitlab:
     image: 'gitlab/gitlab-ce:latest'
     restart: unless-stopped
-    hostname: 'gitlab.dep7serverm.com'
+    hostname: 'dep7serverm.com'
     container_name: gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
-        external_url 'https://gitlab.dep7serverm.com:2443'
+        external_url 'https://dep7serverm.com:2443'
     ports:
 #      - '80:80'
       - '2443:2443' #Intersect with mailu web -> switch to 2443
