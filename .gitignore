@@ -3,6 +3,11 @@
 /gitlab/
 /mail/*
 !/mail/mailu.env
+!/mail/nginx
 /logging/elasticsearch/data/
+/logging/filebeat/filebeat_data/
+/logging/fluentd/fluentd-buffer/
 /monitoring/grafana/grafana_data/
 /monitoring/prometheus/prometheus_data/
+/proxy/cert/certificate.crt
+/proxy/cert/private.key

@@ -24,8 +24,9 @@ services:
 #***********ELK Stack part fith filebeat for Docker logs monitoring************
 #******************************************************************************
   elasticsearch:
+    image: rand/elasticsearch
     build:
-      context: ./logging/elasticsearch/
+      context: ./logging/elasticsearch
       args:
         ELK_VERSION: $ELK_VERSION
     restart: unless-stopped
@@ -35,9 +36,6 @@ services:
         source: ./logging/elasticsearch/config/elasticsearch.yml
         target: /usr/share/elasticsearch/config/elasticsearch.yml
         read_only: true
-      # - type: volume
-      #   source: ./logging/elasticsearch/data
-      #   target: /usr/share/elasticsearch/data
       - ./logging/elasticsearch/data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
@@ -51,34 +49,49 @@ services:
     networks:
       - server-net
 
-  logstash:
-    build:
-      context: ./logging/logstash/
-      args:
-        ELK_VERSION: $ELK_VERSION
-    restart: unless-stopped
-    container_name: logstash
-    volumes:
-      - type: bind
-        source: ./logging/logstash/config/logstash.yml
-        target: /usr/share/logstash/config/logstash.yml
-        read_only: true
-      - type: bind
-        source: ./logging/logstash/pipeline
-        target: /usr/share/logstash/pipeline
-        read_only: true
-    ports:
-      - "5000:5000/tcp"
-      - "5000:5000/udp"
-      - "9600:9600"
-    environment:
-      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
-    networks:
-      - server-net
-    depends_on:
-      - elasticsearch
+  # logstash:
+  #   build:
+  #     context: monitoring/logstash/
+  #     args:
+  #       ELK_VERSION: $ELK_VERSION
+  #   container_name: logstash
+  #   volumes:
+  #     - type: bind
+  #       source: ./monitoring/logstash/config/logstash.yml
+  #       target: /usr/share/logstash/config/logstash.yml
+  #       read_only: true
+  #     - type: bind
+  #       source: ./monitoring/logstash/pipeline
+  #       target: /usr/share/logstash/pipeline
+  #       read_only: true
+  #   ports:
+  #     - "5000:5000/tcp"
+  #     - "5000:5000/udp"
+  #     - "9600:9600"
+  #   environment:
+  #     LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+  #   networks:
+  #     - elk
+  #   depends_on:
+  #     - elasticsearch
+
+  # logspout:
+  #   build:
+  #     context: monitoring/extensions/logspout
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   container_name: logspout
+  #   environment:
+  #     ROUTE_URIS: logstash://logstash:5000
+  #     LOGSTASH_TAGS: docker-elk
+  #   networks:
+  #     - elk
+  #   depends_on:
+  #     - logstash
+  #   restart: on-failure
 
   kibana:
+    image: rand/kibana
     build:
       context: ./logging/kibana/
       args:
@@ -97,20 +110,47 @@ services:
     depends_on:
       - elasticsearch
 
-  logspout:
+  fluentd:
+    image: rand/fluentd
     build:
-      context: ./logging/extensions/logspout
-    container_name: logspout
+      context: logging/fluentd
+    container_name: fluentd
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+     - ./logging/fluentd/fluentd-buffer:/fluentd/log
+     - /var/lib/docker/containers:/var/lib/docker/containers
+     - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      ROUTE_URIS: logstash://logstash:5000
-      LOGSTASH_TAGS: docker-elk
+      - FLUENTD_CONF=fluentd.conf
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
+      - ELASTICSEARCH_SCHEME=http
+      - ENVIRONMENT=development.local
+    ports:
+      - "5140:5140/udp"
+    networks:
+      - server-net
+    logging:
+      driver: json-file
+      options:
+        "max-size": "10m"
+        "max-file": "5"
+  
+  curator:
+    image: rand/curator
+    build:
+      context: logging/extensions/curator/
+    container_name: curator  
+    environment:
+      ELASTICSEARCH_HOST: elasticsearch
+      CRON: 0 0 * * *
+      CONFIG_FILE: /usr/share/curator/config/curator.yml
+      COMMAND: /usr/share/curator/config/delete_log_files_curator.yml
+      UNIT_COUNT: 2
     networks:
       - server-net
     depends_on:
-      - logstash
-    restart: on-failure
+      - elasticsearch
+
 #******************************************************************************
 #************************Rocketchat part - Chat********************************
 #******************************************************************************
@@ -130,7 +170,7 @@ services:
       - ./chat/uploads:/app/uploads
     environment:
       - PORT=3000
-      - ROOT_URL=http://localhost:3000
+      - ROOT_URL=http://localhost:3000/rocketchat
       - MONGO_URL=mongodb://mongo:27017/rocketchat
       - MONGO_OPLOG_URL=mongodb://mongo:27017/local
       - MAIL_URL=smtp://front:25
@@ -203,9 +243,10 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
+      - '--web.external-url=http://127.0.0.1:80/prometheus'
     restart: unless-stopped
-    expose:
-      - 9090
+    ports:
+      - 9090:9090
     networks:
       - server-net
     labels:
@@ -220,8 +261,8 @@ services:
       - '--config.file=/etc/alertmanager/config.yml'
       - '--storage.path=/alertmanager'
     restart: unless-stopped
-    expose:
-      - 9093
+    ports:
+      - 9093:9093
     networks:
       - server-net
     labels:
@@ -240,8 +281,8 @@ services:
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
-    expose:
-      - 9100
+    ports:
+      - 9100 # only expose?
     networks:
       - server-net
     labels:
@@ -257,7 +298,7 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
       #- /cgroup:/cgroup:ro #doesn't work on MacOS only for Linux
     restart: unless-stopped
-    expose:
+    ports:
       - 8080
     networks:
       - server-net
@@ -267,8 +308,6 @@ services:
   grafana:
     image: grafana/grafana:7.1.1
     container_name: grafana
-    env_file: monitoring/config
-    #user: "472:472"
     volumes:
       - ./monitoring/grafana/grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
@@ -276,9 +315,12 @@ services:
       - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=localhost
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVER_FROM_SUB_PATH=true
     restart: unless-stopped
-    expose:
-      - 3000
+    ports:
+      - 3000:3000
     networks:
       - server-net
     labels:
@@ -288,28 +330,10 @@ services:
     image: prom/pushgateway:v1.2.0
     container_name: pushgateway
     restart: unless-stopped
-    expose:
-      - 9091
-    networks:
-      - server-net
-    labels:
-      org.label-schema.group: "monitoring"
-
-  caddy:
-    image: stefanprodan/caddy
-    container_name: caddy
-    env_file: monitoring/config
+    command:
+      - '--web.external-url=http://127.0.0.1:80/pushgateway'
     ports:
-      - "3000:3000"
-      - "9090:9090"
-      - "9093:9093"
-      - "9091:9091"
-    volumes:
-      - ./monitoring/caddy:/etc/caddy
-    environment:
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-    restart: unless-stopped
+      - 9091:9091
     networks:
       - server-net
     labels:
@@ -333,7 +357,10 @@ services:
     
   # Core services
   front:
-    image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}nginx:${MAILU_VERSION:-1.7}
+    #image: ${DOCKER_ORG:-mailu}/${DOCKER_PREFIX:-}nginx:${MAILU_VERSION:-1.7}
+    image: rand/front_proxy
+    build:
+      context: mail/nginx    
     restart: unless-stopped
     container_name: front
     env_file: mail/mailu.env
@@ -480,10 +507,10 @@ services:
     container_name: gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
-        external_url 'https://dep7serverm.com:2443'
+        external_url 'https://dep7serverm.com'
     ports:
 #      - '80:80'
-      - '2443:2443' #Intersect with mailu web -> switch to 2443
+      - '2443:443' #Intersect with mailu web -> switch to 2443
       - '22:22'
     volumes:
       - './gitlab/config:/etc/gitlab'
