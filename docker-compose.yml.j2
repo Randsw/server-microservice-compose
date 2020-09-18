@@ -12,8 +12,8 @@ services:
     volumes:
      - ./bind:/data
     ports:
-      - "192.168.1.20:53:53/udp"
-      - "192.168.1.20:53:53/tcp"
+      - "{{ ansible_host }}:53:53/udp"
+      - "{{ ansible_host }}:53:53/tcp"
     environment:
       WEBMIN_ENABLED: "false"
     networks:
@@ -42,7 +42,7 @@ services:
       - "9300:9300"
     environment:
       ES_JAVA_OPTS: "-Xmx256m -Xms256m"
-      ELASTIC_PASSWORD: changeme
+      ELASTIC_PASSWORD: {{ elastic_pass }}
       # Use single node discovery in order to disable production mode and avoid bootstrap checks
       # see https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
       discovery.type: single-node
@@ -145,7 +145,7 @@ services:
       CRON: 0 0 * * *
       CONFIG_FILE: /usr/share/curator/config/curator.yml
       COMMAND: /usr/share/curator/config/delete_log_files_curator.yml
-      UNIT_COUNT: 2
+      UNIT_COUNT: {{ keep_logs_day }}
     networks:
       - server-net
     depends_on:
@@ -174,9 +174,9 @@ services:
       - MONGO_URL=mongodb://mongo:27017/rocketchat
       - MONGO_OPLOG_URL=mongodb://mongo:27017/local
       - MAIL_URL=smtp://front:25
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASS=changeme
-      - ADMIN_EMAIL=admin@dep7serverm.com
+      - ADMIN_USERNAME={{ chat_admin_name }}
+      - ADMIN_PASS={{ chat_admin_pass }}
+      - ADMIN_EMAIL={{ chat_admin_mail }}
 #       - HTTP_PROXY=http://proxy.domain.com
 #       - HTTPS_PROXY=http://proxy.domain.com
     depends_on:
@@ -242,7 +242,7 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
-      - '--web.external-url=http://127.0.0.1:80/prometheus'
+      - '--web.external-url=http://{{ ansible_host }}:80/prometheus'
     restart: unless-stopped
     ports:
       - 9090:9090
@@ -330,7 +330,7 @@ services:
     container_name: pushgateway
     restart: unless-stopped
     command:
-      - '--web.external-url=http://127.0.0.1:80/pushgateway'
+      - '--web.external-url=http://{{ ansible_host }}:80/pushgateway'
     ports:
       - 9091:9091
     networks:
@@ -366,9 +366,9 @@ services:
     logging:
       driver: json-file
     ports:
-      - "192.168.1.20:80:80"
+      - "{{ ansible_host }}:80:80"
 #      - "::1:80:80"
-      - "192.168.1.20:443:443"
+      - "{{ ansible_host }}:443:443"
 #      - "::1:443:443"
       - "25:25"
 #      - "::1:25:25"
@@ -506,7 +506,7 @@ services:
     container_name: gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
-        external_url 'https://dep7serverm.com'
+        external_url {{ gitlab_external_url }}
     ports:
 #      - '80:80'
       - '2443:443' #Intersect with mailu web -> switch to 2443
@@ -524,4 +524,4 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.19.0.0/16
+        - subnet: {{ docker_subnet }}
