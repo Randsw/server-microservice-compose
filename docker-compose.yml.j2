@@ -12,8 +12,8 @@ services:
     volumes:
      - ./bind:/data
     ports:
-      - "{{ ansible_host }}:53:53/udp"
-      - "{{ ansible_host }}:53:53/tcp"
+      - "{{ ansible_host }}:53/udp"
+      - "{{ ansible_host }}:53/tcp"
     environment:
       WEBMIN_ENABLED: "false"
     networks:
@@ -37,9 +37,9 @@ services:
         target: /usr/share/elasticsearch/config/elasticsearch.yml
         read_only: true
       - ./logging/elasticsearch/data:/usr/share/elasticsearch/data
-    ports:
-      - "9200:9200"
-      - "9300:9300"
+    expose:
+      - 9200
+      - 9300
     environment:
       ES_JAVA_OPTS: "-Xmx256m -Xms256m"
       ELASTIC_PASSWORD: {{ elastic_pass }}
@@ -64,10 +64,10 @@ services:
   #       source: ./monitoring/logstash/pipeline
   #       target: /usr/share/logstash/pipeline
   #       read_only: true
-  #   ports:
-  #     - "5000:5000/tcp"
-  #     - "5000:5000/udp"
-  #     - "9600:9600"
+  #   expose:
+  #     - "5000/tcp"
+  #     - "5000/udp"
+  #     - "9600"
   #   environment:
   #     LS_JAVA_OPTS: "-Xmx256m -Xms256m"
   #   networks:
@@ -103,8 +103,8 @@ services:
         source: ./logging/kibana/config/kibana.yml
         target: /usr/share/kibana/config/kibana.yml
         read_only: true
-    ports:
-      - "5601:5601"
+    expose:
+      - 5601
     networks:
       - server-net
     depends_on:
@@ -125,8 +125,8 @@ services:
       - ELASTICSEARCH_PORT=9200
       - ELASTICSEARCH_SCHEME=http
       - ENVIRONMENT=development.local
-    ports:
-      - "5140:5140/udp"
+    expose:
+      - "5140/udp"
     networks:
       - server-net
     logging:
@@ -181,8 +181,8 @@ services:
 #       - HTTPS_PROXY=http://proxy.domain.com
     depends_on:
       - mongo
-    ports:
-      - 3333:3000 # Intersect with grafana port -> switch to 3333
+    expose:
+      - 3000 # Intersect with grafana port -> switch to 3333
     labels:
       - "traefik.backend=rocketchat"
       - "traefik.frontend.rule=Host: your.domain.tld"
@@ -244,8 +244,8 @@ services:
       - '--web.enable-lifecycle'
       - '--web.external-url=http://{{ ansible_host }}:80/prometheus'
     restart: unless-stopped
-    ports:
-      - 9090:9090
+    expose:
+      - 9090
     networks:
       - server-net
     labels:
@@ -260,8 +260,8 @@ services:
       - '--config.file=/etc/alertmanager/config.yml'
       - '--storage.path=/alertmanager'
     restart: unless-stopped
-    ports:
-      - 9093:9093
+    expose:
+      - 9093
     networks:
       - server-net
     labels:
@@ -280,8 +280,8 @@ services:
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
-    ports:
-      - 9100 #TODO ?????
+    expose:
+      - 9100 
     networks:
       - server-net
     labels:
@@ -297,8 +297,8 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
       - /cgroup:/cgroup:ro #doesn't work on MacOS only for Linux
     restart: unless-stopped
-    ports:
-      - 8080 #TODO ?????
+    expose:
+      - 8080
     networks:
       - server-net
     labels:
@@ -331,8 +331,8 @@ services:
     restart: unless-stopped
     command:
       - '--web.external-url=http://{{ ansible_host }}:80/pushgateway'
-    ports:
-      - 9091:9091
+    expose:
+      - 9091
     networks:
       - server-net
     labels:
@@ -502,15 +502,36 @@ services:
   gitlab:
     image: 'gitlab/gitlab-ce:latest'
     restart: unless-stopped
-    hostname: 'dep7serverm.com'
+    #hostname: 'dep7serverm.com'
     container_name: gitlab
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url {{ gitlab_external_url }}
-    ports:
-#      - '80:80'
-      - '2443:443' #Intersect with mailu web -> switch to 2443
-      - '22:22'
+        nginx['redirect_http_to_https'] = false
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_email_from'] = 'gitlab@dep7serverm.com'
+        gitlab_rails['gitlab_email_reply_to'] = 'gitlab@dep7serverm.com'
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = "front"
+        gitlab_rails['smtp_port'] = 25
+        gitlab_rails['smtp_user_name'] = "gitlab@dep7serverm.com"
+        gitlab_rails['smtp_password'] = "changeme"
+        gitlab_rails['smtp_authentication'] = "login"
+        gitlab_rails['smtp_enable_starttls_auto'] = false
+        gitlab_rails['smtp_tls'] = false
+        gitlab_rails['smtp_openssl_verify_mode'] = 'none'
+        gitlab_rails['smtp_force_ssl'] = false
+        mattermost['enable'] = false
+        prometheus['enable'] = false
+        alertmanager['enable'] = false
+        node_exporter['enable'] = false
+        grafana['enable'] = false
+        letsencrypt['enable'] = false
+    expose:
+      - 80
+      - 443
+      - 22
     volumes:
       - './gitlab/config:/etc/gitlab'
       - './gitlab/logs:/var/log/gitlab'
@@ -525,3 +546,4 @@ networks:
       driver: default
       config:
         - subnet: {{ docker_subnet }}
+
