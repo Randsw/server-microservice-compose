@@ -1,0 +1,19 @@
+---
+docker_subnet: 172.19.0.0/16
+# Docker-compose.yml
+ansible_host: "192.168.1.20"
+keep_logs_day: 2
+chat_admin_name: admin
+chat_admin_pass: changeme
+chat_admin_mail: admin@dep7serverm.com
+elastic_pass   : "changeme"
+gitlab_external_url: 'https://dep7serverm.com'
+# Mailu.env
+SECRET_KEY:           6ABWHB8XWHZ6RVDM
+domain:               dep7serverm.com
+hostnames:            mail.dep7serverm.com
+sitename:             dep7serverm
+website:              https://dep7serverm.com
+mail_admin_name:      admin
+mail_admin_mailhost:  dep7serverm.com
+mail_admin_pass:      changeme
