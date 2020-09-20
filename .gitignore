@@ -3,6 +3,7 @@
 /gitlab/
 /mail/*
 !/mail/mailu.env
+!/mail/mailu.env.j2
 !/mail/nginx
 /logging/elasticsearch/data/
 /logging/filebeat/filebeat_data/
