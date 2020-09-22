@@ -12,8 +12,8 @@ services:
     volumes:
      - ./bind:/data
     ports:
-      - "{{ ansible_host }}:53/udp"
-      - "{{ ansible_host }}:53/tcp"
+      - "{{ ansible_default_ipv4.address }}:53/udp"
+      - "{{ ansible_default_ipv4.address }}:53/tcp"
     environment:
       WEBMIN_ENABLED: "false"
     networks:
@@ -366,9 +366,9 @@ services:
     logging:
       driver: json-file
     ports:
-      - "{{ ansible_host }}:80:80"
+      - "{{ ansible_default_ipv4.address }}:80:80"
 #      - "::1:80:80"
-      - "{{ ansible_host }}:443:443"
+      - "{{ ansible_default_ipv4.address }}:443:443"
 #      - "::1:443:443"
       - "25:25"
 #      - "::1:25:25"
