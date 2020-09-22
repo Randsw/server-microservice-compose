@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     container_name: bind
     volumes:
-     - ./bind:/data
+     - ./bind:/data/data
     ports:
       - "{{ ansible_default_ipv4.address }}:53/udp"
       - "{{ ansible_default_ipv4.address }}:53/tcp"

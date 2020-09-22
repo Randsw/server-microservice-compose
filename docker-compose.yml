@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     container_name: bind
     volumes:
-     - .:/data
+     - ./bind:/data/bind
     ports:
       - "192.168.1.20:53:53/udp"
       - "192.168.1.20:53:53/tcp"
