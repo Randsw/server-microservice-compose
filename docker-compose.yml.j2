@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     container_name: bind
     volumes:
-     - ./bind:/data/data
+     - ./bind:/data/bind
     ports:
       - "{{ ansible_default_ipv4.address }}:53:53/udp"
       - "{{ ansible_default_ipv4.address }}:53:53/tcp"
@@ -125,8 +125,8 @@ services:
       - ELASTICSEARCH_PORT=9200
       - ELASTICSEARCH_SCHEME=http
       - ENVIRONMENT=development.local
-    expose:
-      - "5140/udp"
+    ports:
+      - "127.0.0.1:5140:5140/udp"
     networks:
       - server-net
     logging:
